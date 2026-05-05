@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkyFlight — First Person Aerial</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --hud-green: #00ff88;
+    --hud-amber: #ffaa00;
+    --hud-red: #ff3344;
+    --hud-blue: #44aaff;
+    --hud-dim: rgba(0,255,136,0.18);
+    --hud-border: rgba(0,255,136,0.35);
+    --glass: rgba(0,15,8,0.55);
+  }
+
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000;
+    font-family: 'Courier New', Courier, monospace;
+  }
+
+  #gameCanvas {
+    display: block;
+    width: 100%; height: 100%;
+    image-rendering: pixelated;
+  }
+
+  /* ── HUD overlay ── */
+  #hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* Crosshair */
+  #crosshair {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 48px; height: 48px;
+  }
+  #crosshair::before, #crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(0,255,136,0.7);
+  }
+  #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+  #crosshair::after  { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+  .ch-ring {
+    position: absolute; inset: 6px;
+    border: 1.5px solid rgba(0,255,136,0.45);
+    border-radius: 50%;
+  }
+  .ch-dot {
+    position: absolute; top: 50%; left: 50%;
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--hud-green);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 6px var(--hud-green);
+  }
+
+  /* Speed tape (left) */
+  #speed-panel {
+    position: absolute;
+    left: 28px; top: 50%;
+    transform: translateY(-50%);
+    width: 78px;
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 10px 8px;
+  }
+  .panel-label {
+    font-size: 9px;
+    color: rgba(0,255,136,0.55);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+  .panel-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--hud-green);
+    text-align: center;
+    text-shadow: 0 0 10px var(--hud-green);
+    line-height: 1;
+  }
+  .panel-unit {
+    font-size: 9px;
+    color: rgba(0,255,136,0.45);
+    text-align: center;
+    letter-spacing: 1px;
+    margin-top: 2px;
+  }
+  #speed-tape {
+    margin-top: 8px;
+    height: 120px;
+    overflow: hidden;
+    position: relative;
+    border-top: 1px solid var(--hud-border);
+  }
+  #speed-tape-inner { position: absolute; width: 100%; }
+  .tape-tick {
+    display: flex; align-items: center;
+    height: 14px;
+    font-size: 9px;
+    color: rgba(0,255,136,0.5);
+    padding: 0 4px;
+    gap: 4px;
+  }
+  .tape-tick span { font-size: 9px; }
+  .tape-tick-line { flex: 1; height: 1px; background: rgba(0,255,136,0.2); }
+
+  /* Altitude (right) */
+  #alt-panel {
+    position: absolute;
+    right: 28px; top: 50%;
+    transform: translateY(-50%);
+    width: 78px;
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 10px 8px;
+  }
+
+  /* Attitude indicator (top center) */
+  #attitude {
+    position: absolute;
+    top: 24px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 50%;
+    width: 100px; height: 100px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #attitude canvas { border-radius: 50%; }
+
+  /* Compass strip (bottom center) */
+  #compass-strip {
+    position: absolute;
+    bottom: 80px; left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 6px 0 4px;
+    overflow: hidden;
+    text-align: center;
+  }
+  #compass-inner {
+    font-size: 11px;
+    color: var(--hud-green);
+    letter-spacing: 3px;
+    white-space: nowrap;
+    text-shadow: 0 0 8px var(--hud-green);
+  }
+  #compass-heading {
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--hud-green);
+    text-shadow: 0 0 12px var(--hud-green);
+    letter-spacing: 2px;
+  }
+  #compass-marker {
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 2px; height: 100%;
+    background: rgba(255,170,0,0.6);
+  }
+
+  /* Throttle bar (bottom left) */
+  #throttle-panel {
+    position: absolute;
+    bottom: 24px; left: 28px;
+    width: 160px;
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 8px 10px;
+  }
+  .bar-track {
+    height: 8px;
+    background: rgba(0,255,136,0.1);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.1s;
+  }
+  #throttle-fill { background: linear-gradient(90deg, #00aa55, #00ff88); }
+  #gear-indicator {
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--hud-amber);
+    letter-spacing: 2px;
+    text-align: center;
+    text-shadow: 0 0 8px var(--hud-amber);
+  }
+
+  /* Stall / warning flags */
+  #warnings {
+    position: absolute;
+    top: 140px; right: 28px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .warn-flag {
+    font-size: 10px; font-weight: bold;
+    letter-spacing: 2px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .warn-flag.active { opacity: 1; }
+  #flag-stall { background: rgba(255,51,68,0.2); border: 1px solid var(--hud-red); color: var(--hud-red); }
+  #flag-overspeed { background: rgba(255,170,0,0.2); border: 1px solid var(--hud-amber); color: var(--hud-amber); }
+  #flag-gear { background: rgba(68,170,255,0.2); border: 1px solid var(--hud-blue); color: var(--hud-blue); }
+
+  /* Score / time (top right) */
+  #score-panel {
+    position: absolute;
+    top: 24px; right: 28px;
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    text-align: right;
+  }
+  .score-row { font-size: 10px; color: rgba(0,255,136,0.5); letter-spacing: 1px; }
+  .score-val { font-size: 18px; color: var(--hud-green); text-shadow: 0 0 8px var(--hud-green); font-weight: bold; }
+
+  /* Controls help (bottom right) */
+  #controls-help {
+    position: absolute;
+    bottom: 24px; right: 28px;
+    background: var(--glass);
+    border: 1px solid var(--hud-border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 10px;
+    color: rgba(0,255,136,0.45);
+    line-height: 1.8;
+    letter-spacing: 1px;
+  }
+  #controls-help span { color: rgba(0,255,136,0.75); }
+
+  /* Screens */
+  .screen {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 100;
+    background: radial-gradient(ellipse at center, rgba(0,20,10,0.97) 0%, rgba(0,0,0,0.99) 100%);
+  }
+  .screen.hidden { display: none; }
+
+  .screen-title {
+    font-size: clamp(32px, 6vw, 64px);
+    font-weight: bold;
+    color: var(--hud-green);
+    letter-spacing: 8px;
+    text-shadow: 0 0 40px var(--hud-green), 0 0 80px rgba(0,255,136,0.3);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .screen-sub {
+    font-size: 12px;
+    color: rgba(0,255,136,0.45);
+    letter-spacing: 4px;
+    margin-bottom: 48px;
+  }
+  .screen-btn {
+    padding: 14px 48px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    background: transparent;
+    border: 1.5px solid var(--hud-green);
+    color: var(--hud-green);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-shadow: 0 0 8px var(--hud-green);
+    margin: 6px;
+  }
+  .screen-btn:hover {
+    background: rgba(0,255,136,0.1);
+    box-shadow: 0 0 24px rgba(0,255,136,0.3);
+    letter-spacing: 6px;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 32px;
+    margin: 24px 0 36px;
+    text-align: center;
+  }
+  .stat-item { }
+  .stat-label { font-size: 10px; color: rgba(0,255,136,0.4); letter-spacing: 3px; }
+  .stat-num { font-size: 28px; color: var(--hud-green); text-shadow: 0 0 12px var(--hud-green); font-weight: bold; }
+
+  .scanline {
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+    pointer-events: none; z-index: 200;
+  }
+
+  /* Vignette */
+  #vignette {
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.7) 100%);
+    pointer-events: none; z-index: 5;
+  }
+
+  /* G-force flash */
+  #gforce-overlay {
+    position: fixed; inset: 0;
+    pointer-events: none; z-index: 15;
+    opacity: 0;
+    background: radial-gradient(ellipse, transparent 30%, rgba(255,0,30,0.5) 100%);
+    transition: opacity 0.08s;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+<div id="vignette"></div>
+<div id="gforce-overlay"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="crosshair">
+    <div class="ch-ring"></div>
+    <div class="ch-dot"></div>
+  </div>
+
+  <!-- Speed -->
+  <div id="speed-panel">
+    <div class="panel-label">SPEED</div>
+    <div class="panel-value" id="speed-val">280</div>
+    <div class="panel-unit">KTS</div>
+    <div id="speed-tape">
+      <div id="speed-tape-inner"></div>
+    </div>
+  </div>
+
+  <!-- Altitude -->
+  <div id="alt-panel">
+    <div class="panel-label">ALT</div>
+    <div class="panel-value" id="alt-val">3500</div>
+    <div class="panel-unit">FT</div>
+    <div id="alt-tape" class="speed-tape" style="margin-top:8px;height:120px;overflow:hidden;position:relative;border-top:1px solid var(--hud-border)">
+      <div id="alt-tape-inner" style="position:absolute;width:100%"></div>
+    </div>
+    <div class="panel-label" style="margin-top:8px">VSI</div>
+    <div class="panel-value" id="vsi-val" style="font-size:16px">+0</div>
+    <div class="panel-unit">FPM</div>
+  </div>
+
+  <!-- Attitude -->
+  <div id="attitude">
+    <canvas id="attitudeCanvas" width="94" height="94"></canvas>
+  </div>
+
+  <!-- Compass -->
+  <div id="compass-strip">
+    <div id="compass-marker"></div>
+    <div id="compass-inner">N&nbsp;&nbsp;&nbsp;045&nbsp;&nbsp;&nbsp;E&nbsp;&nbsp;&nbsp;135&nbsp;&nbsp;&nbsp;S</div>
+    <div id="compass-heading">360°</div>
+  </div>
+
+  <!-- Throttle -->
+  <div id="throttle-panel">
+    <div class="panel-label">THROTTLE</div>
+    <div class="bar-track"><div class="bar-fill" id="throttle-fill" style="width:65%"></div></div>
+    <div class="panel-label" style="margin-top:8px">FLAPS</div>
+    <div class="bar-track"><div class="bar-fill" id="flaps-fill" style="width:0%;background:var(--hud-blue)"></div></div>
+    <div id="gear-indicator">GEAR UP</div>
+  </div>
+
+  <!-- Warnings -->
+  <div id="warnings">
+    <div class="warn-flag" id="flag-stall">STALL</div>
+    <div class="warn-flag" id="flag-overspeed">OVERSPD</div>
+    <div class="warn-flag" id="flag-gear">GEAR DN</div>
+  </div>
+
+  <!-- Score -->
+  <div id="score-panel">
+    <div class="score-row">TIME</div>
+    <div class="score-val" id="time-val">00:00</div>
+    <div class="score-row" style="margin-top:6px">SCORE</div>
+    <div class="score-val" id="score-val">0</div>
+    <div class="score-row" style="margin-top:6px">RINGS</div>
+    <div class="score-val" id="rings-val">0</div>
+    <div style="margin-top:10px;text-align:right">
+      <span id="view-mode-label" style="font-size:10px;letter-spacing:2px;padding:3px 8px;border:1px solid rgba(0,255,136,0.4);border-radius:3px;color:var(--hud-green);background:rgba(0,255,136,0.08)">RURAL</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls-help">
+    <span>↑/↓ or W/S</span> Pitch<br>
+    <span>A/D</span> Roll &nbsp;&nbsp;<span>Q/E</span> Throttle<br>
+    <span>F</span> Flaps &nbsp;<span>G</span> Gear &nbsp;<span>B</span> Brakes<br>
+    <span>SHIFT</span> Afterburner<br>
+    <span>R</span> Reset view &nbsp;<span>V</span> Scene
+  </div>
+</div>
+
+<!-- Screens -->
+<div class="screen" id="screen-menu">
+  <div class="screen-title">SKYFLIGHT</div>
+  <div class="screen-sub">FIRST PERSON AERIAL SIMULATION</div>
+  <div style="display:flex;gap:12px;margin-bottom:24px">
+    <button class="screen-btn view-btn active-view" id="btn-rural" style="padding:10px 28px;font-size:12px">RURAL</button>
+    <button class="screen-btn view-btn" id="btn-city"  style="padding:10px 28px;font-size:12px;opacity:0.55">CITY</button>
+  </div>
+  <button class="screen-btn" id="btn-start">TAKE OFF</button>
+  <button class="screen-btn" id="btn-help" style="font-size:12px;padding:10px 32px;opacity:0.7">HOW TO FLY</button>
+</div>
+
+<div class="screen hidden" id="screen-help">
+  <div class="screen-title" style="font-size:28px">CONTROLS</div>
+  <div style="color:rgba(0,255,136,0.7);line-height:2.2;font-size:13px;letter-spacing:2px;margin:20px 0 32px;text-align:center">
+    <b style="color:var(--hud-green)">↑ / ↓  or  W / S</b> — Pitch nose up / down<br>
+    <b style="color:var(--hud-green)">A / D</b> — Roll left / right<br>
+    <b style="color:var(--hud-green)">Q / E</b> — Throttle down / up<br>
+    <b style="color:var(--hud-green)">SHIFT</b> — Afterburner boost<br>
+    <b style="color:var(--hud-green)">V</b> — Toggle City / Rural scene<br>
+    <b style="color:var(--hud-green)">F</b> — Toggle flaps (0 / 10 / 20 / 30°)<br>
+    <b style="color:var(--hud-green)">G</b> — Retract / deploy landing gear<br>
+    <b style="color:var(--hud-green)">B</b> — Airbrakes<br>
+    <b style="color:var(--hud-green)">R</b> — Reset aircraft upright<br>
+    <b style="color:var(--hud-green)">ESC</b> — Pause<br><br>
+    Fly through <b style="color:var(--hud-amber)">golden rings</b> to score points.<br>
+    Stall below 120 kts. Overspeed above 520 kts.
+  </div>
+  <button class="screen-btn" id="btn-back">BACK</button>
+</div>
+
+<div class="screen hidden" id="screen-pause">
+  <div class="screen-title" style="font-size:36px">PAUSED</div>
+  <div class="screen-sub">AIRCRAFT HOLDING PATTERN</div>
+  <button class="screen-btn" id="btn-resume">RESUME</button>
+  <button class="screen-btn" id="btn-quit" style="font-size:12px;opacity:0.6">QUIT TO MENU</button>
+</div>
+
+<div class="screen hidden" id="screen-crash">
+  <div class="screen-title" style="font-size:36px;color:var(--hud-red);text-shadow:0 0 40px var(--hud-red)">CRASHED</div>
+  <div class="screen-sub">FLIGHT TERMINATED</div>
+  <div class="stat-grid" id="crash-stats"></div>
+  <button class="screen-btn" id="btn-restart">FLY AGAIN</button>
+  <button class="screen-btn" id="btn-quit2" style="font-size:12px;opacity:0.6">MENU</button>
+</div>
+
+<div class="scanline"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+//  SKYFLIGHT — Single-file first-person flight game
+//  Pure vanilla JS + Canvas2D. No modules. Works on file://
+// ─────────────────────────────────────────────────────────────────────────
+
+(function() {
+'use strict';
+
+// ── Canvas setup ─────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Math helpers ──────────────────────────────────────────────────────────
+const TAU = Math.PI * 2;
+const DEG = Math.PI / 180;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp  = (a, b, t) => a + (b - a) * t;
+
+function rotateX(p, s, c) { return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c }; }
+function rotateY(p, s, c) { return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c }; }
+function rotateZ(p, s, c) { return { x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: p.z }; }
+
+// ── Flight state ──────────────────────────────────────────────────────────
+const GRAVITY = 9.81;
+const AIR_DENSITY = 1.225;
+
+let aircraft = {};
+let score = 0, rings = 0, gameTime = 0;
+let gameState = 'menu'; // menu | flying | paused | crashed
+let lastTime = 0;
+let blink = 0;
+let viewMode = 'rural'; // 'rural' | 'city'
+
+function resetAircraft() {
+  aircraft = {
+    // world position (meters)
+    x: 0, y: 1000, z: 0,
+    // velocity (m/s in world space)
+    vx: 0, vy: 0, vz: 80,
+    // orientation (radians): pitch, roll, yaw
+    pitch: 0, roll: 0, yaw: 0,
+    // control inputs (normalised -1..1)
+    pitchInput: 0, rollInput: 0,
+    // systems
+    throttle: 0.65,  // 0..1
+    flaps: 0,        // 0..3
+    gearDown: false,
+    brakes: false,
+    afterburner: false,
+    // derived
+    speed: 80,       // m/s
+    altitude: 1000,  // ft
+    heading: 0,      // deg
+    vsi: 0,          // ft/min
+    aoa: 0,
+    stallWarning: false,
+    overspeedWarning: false,
+    // smoothed for display
+    displayPitch: 0,
+    displayRoll: 0,
+    displaySpeed: 154,  // kts
+    displayAlt: 3280,
+    prevAlt: 1000,
+  };
+}
+resetAircraft();
+
+// ── Input ─────────────────────────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (gameState === 'flying') pauseGame();
+    else if (gameState === 'paused') resumeGame();
+    return;
+  }
+  keys[e.key.toLowerCase()] = true;
+  if (e.key === 'f' || e.key === 'F') {
+    aircraft.flaps = (aircraft.flaps + 1) % 4;
+  }
+  if (e.key === 'g' || e.key === 'G') {
+    aircraft.gearDown = !aircraft.gearDown;
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    aircraft.pitch = 0; aircraft.roll = 0;
+  }
+  if (e.key === 'v' || e.key === 'V') {
+    viewMode = viewMode === 'rural' ? 'city' : 'rural';
+    document.getElementById('view-mode-label').textContent = viewMode === 'city' ? 'CITY' : 'RURAL';
+  }
+  e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ── World: terrain + rings ────────────────────────────────────────────────
+function terrainHeight(x, z) {
+  if (viewMode === 'city') {
+    // Flat urban base with slight variation
+    return (
+      Math.sin(x * 0.0001) * 20 +
+      Math.sin(z * 0.0001) * 20
+    );
+  }
+  // Rural: rolling hills
+  return (
+    Math.sin(x * 0.0003) * 200 +
+    Math.sin(z * 0.0004) * 180 +
+    Math.sin(x * 0.0011 + z * 0.0009) * 80 +
+    Math.cos(x * 0.0006 - z * 0.0005) * 120 +
+    Math.sin(x * 0.002 + z * 0.003) * 30
+  );
+}
+
+// City building grid — returns building height at city cell (pseudo-random)
+function buildingHeight(cx, cz) {
+  const h = Math.abs(Math.sin(cx * 7.3 + cz * 13.7) * Math.cos(cx * 3.1 - cz * 5.9));
+  return h * h * 350 + 20;
+}
+function isCityBlock(cx, cz) {
+  // Streets every 3 cells
+  return (((cx % 3) + 3) % 3 !== 0) && (((cz % 3) + 3) % 3 !== 0);
+}
+
+// Score rings
+const NUM_RINGS = 12;
+let ringData = [];
+function spawnRings() {
+  ringData = [];
+  for (let i = 0; i < NUM_RINGS; i++) {
+    const angle = (i / NUM_RINGS) * TAU;
+    const dist  = 2000 + Math.random() * 4000;
+    const rx = Math.cos(angle) * dist;
+    const rz = Math.sin(angle) * dist;
+    const ry = terrainHeight(rx, rz) + 300 + Math.random() * 800;
+    ringData.push({
+      x: rx, y: ry, z: rz,
+      radius: 80,
+      collected: false,
+      rotation: Math.random() * TAU,
+      rotSpeed: (Math.random() - 0.5) * 0.5,
+      pulse: Math.random() * TAU,
+    });
+  }
+}
+spawnRings();
+
+// ── 3D projection ─────────────────────────────────────────────────────────
+let projMat = { sp:0, cp:1, sr:0, cr:1, sy:0, cy:1 };
+
+function updateProjection() {
+  projMat.sp = Math.sin(-aircraft.pitch);
+  projMat.cp = Math.cos(-aircraft.pitch);
+  projMat.sr = Math.sin(-aircraft.roll);
+  projMat.cr = Math.cos(-aircraft.roll);
+  projMat.sy = Math.sin(-aircraft.yaw);
+  projMat.cy = Math.cos(-aircraft.yaw);
+}
+
+function project(wx, wy, wz) {
+  // Translate to camera
+  let lx = wx - aircraft.x;
+  let ly = wy - aircraft.y;
+  let lz = wz - aircraft.z;
+
+  // Rotate by yaw
+  let tx = lx * projMat.cy + lz * projMat.sy;
+  let tz = -lx * projMat.sy + lz * projMat.cy;
+  lx = tx; lz = tz;
+
+  // Rotate by pitch
+  let ty = ly * projMat.cp - lz * projMat.sp;
+  tz     = ly * projMat.sp + lz * projMat.cp;
+  ly = ty; lz = tz;
+
+  // Rotate by roll
+  tx =  lx * projMat.cr - ly * projMat.sr;
+  ty =  lx * projMat.sr + ly * projMat.cr;
+  lx = tx; ly = ty;
+
+  // Perspective
+  const FOV = 1.2;
+  if (lz < 1) return null;
+  const scale = FOV * Math.min(W, H) / lz;
+  return {
+    sx: W/2 + lx * scale,
+    sy: H/2 - ly * scale,
+    depth: lz,
+    scale: scale
+  };
+}
+
+// ── Terrain rendering ─────────────────────────────────────────────────────
+const TERRAIN_GRID = 20;     // cells per side
+const TERRAIN_CELL = 400;    // meters per cell
+const TERRAIN_VIEW = 8000;   // max render distance
+
+function drawTerrain() {
+  const steps = TERRAIN_GRID;
+  const half  = steps / 2;
+  const cell  = TERRAIN_CELL;
+
+  const cx = Math.round(aircraft.x / cell) * cell;
+  const cz = Math.round(aircraft.z / cell) * cell;
+
+  if (viewMode === 'city') {
+    // Draw flat ground plane first
+    for (let zi = -half; zi < half; zi++) {
+      for (let xi = -half; xi < half; xi++) {
+        const x0 = cx + xi * cell, z0 = cz + zi * cell;
+        const x1 = x0 + cell,     z1 = z0 + cell;
+        const gnd = terrainHeight(x0, z0);
+        const corners = [
+          {x:x0,y:gnd,z:z0},{x:x1,y:gnd,z:z0},
+          {x:x1,y:gnd,z:z1},{x:x0,y:gnd,z:z1}
+        ];
+        const projs = corners.map(c => project(c.x,c.y,c.z));
+        if (projs.every(p=>p===null)) continue;
+        const dist = Math.sqrt((x0+cell/2-aircraft.x)**2+(z0+cell/2-aircraft.z)**2);
+        if (dist > TERRAIN_VIEW) continue;
+        const fog = clamp(1-dist/TERRAIN_VIEW,0,1);
+        if (fog<0.02) continue;
+        // Road grey or sidewalk
+        const cxi = Math.round(xi), czi = Math.round(zi);
+        const isStreet = !isCityBlock(cxi,czi);
+        const gr = isStreet ? 55 : 35;
+        ctx.beginPath();
+        let started=false;
+        for(const p of projs){ if(!p)continue; if(!started){ctx.moveTo(p.sx,p.sy);started=true;}else ctx.lineTo(p.sx,p.sy);}
+        ctx.closePath();
+        ctx.fillStyle=`rgba(${gr},${gr},${Math.floor(gr*1.1)},${fog*0.95})`;
+        ctx.fill();
+        if(isStreet){ctx.strokeStyle=`rgba(200,180,60,${fog*0.3})`;ctx.lineWidth=0.5;ctx.stroke();}
+      }
+    }
+    // Draw buildings
+    for (let zi = -half; zi < half; zi++) {
+      for (let xi = -half; xi < half; xi++) {
+        const cxi = Math.round(xi), czi = Math.round(zi);
+        if (!isCityBlock(cxi, czi)) continue;
+        const x0 = cx + xi * cell, z0 = cz + zi * cell;
+        const x1 = x0 + cell,     z1 = z0 + cell;
+        const dist = Math.sqrt((x0+cell/2-aircraft.x)**2+(z0+cell/2-aircraft.z)**2);
+        if (dist > TERRAIN_VIEW) continue;
+        const fog = clamp(1-dist/TERRAIN_VIEW,0,1);
+        if (fog<0.03) continue;
+
+        const gnd = terrainHeight(x0, z0);
+        const bh  = buildingHeight(cxi, czi);
+        const pad = cell * 0.08;
+        const bx0=x0+pad, bx1=x1-pad, bz0=z0+pad, bz1=z1-pad;
+        const top=gnd+bh, bot=gnd;
+
+        // 8 corners of box
+        const pts3 = [
+          {x:bx0,y:top,z:bz0},{x:bx1,y:top,z:bz0},
+          {x:bx1,y:top,z:bz1},{x:bx0,y:top,z:bz1},
+          {x:bx0,y:bot,z:bz0},{x:bx1,y:bot,z:bz0},
+          {x:bx1,y:bot,z:bz1},{x:bx0,y:bot,z:bz1},
+        ];
+        const pp = pts3.map(p=>project(p.x,p.y,p.z));
+        if(pp.every(p=>p===null)) continue;
+
+        // Building colour variety
+        const seed = Math.abs(Math.sin(cxi*17+czi*31));
+        const br = Math.floor(lerp(40,110,seed));
+        const bg2 = Math.floor(lerp(45,120,seed*0.8));
+        const bb = Math.floor(lerp(60,160,seed*0.6+0.3));
+        const alpha = fog*0.92;
+
+        const faces = [
+          [0,1,5,4], // front
+          [1,2,6,5], // right
+          [3,2,6,7], // back
+          [0,3,7,4], // left
+          [0,1,2,3], // top
+        ];
+        const brightness = [1, 0.75, 0.55, 0.8, 1.1];
+        for(let fi=0;fi<faces.length;fi++){
+          const face=faces[fi];
+          const fpp=face.map(i=>pp[i]);
+          if(fpp.some(p=>p===null)) continue;
+          // Back-face cull: skip faces pointing away
+          const bri=brightness[fi];
+          ctx.beginPath();
+          ctx.moveTo(fpp[0].sx,fpp[0].sy);
+          for(let i=1;i<fpp.length;i++) ctx.lineTo(fpp[i].sx,fpp[i].sy);
+          ctx.closePath();
+          const fr=clamp(Math.floor(br*bri),0,255);
+          const fg2=clamp(Math.floor(bg2*bri),0,255);
+          const fb=clamp(Math.floor(bb*bri),0,255);
+          ctx.fillStyle=`rgba(${fr},${fg2},${fb},${alpha})`;
+          ctx.fill();
+          // Window grid on front/side (top face skipped)
+          if(fi<2 && bh>60 && fpp[0]&&fpp[1]){
+            ctx.strokeStyle=`rgba(255,230,120,${fog*0.25})`;
+            ctx.lineWidth=0.5;
+            ctx.strokeRect(
+              Math.min(fpp[0].sx,fpp[1].sx)+2,
+              Math.min(fpp[0].sy,fpp[4]?fpp[4].sy:fpp[0].sy)+2,
+              Math.abs(fpp[0].sx-fpp[1].sx)-4,
+              Math.abs(fpp[0].sy-(fpp[4]?fpp[4].sy:fpp[0].sy))-4
+            );
+          }
+          ctx.strokeStyle=`rgba(0,0,0,${fog*0.3})`;
+          ctx.lineWidth=0.5;
+          ctx.stroke();
+        }
+      }
+    }
+    return;
+  }
+
+  // ── Rural terrain ──────────────────────────────────────────────────────
+  for (let zi = -half; zi < half; zi++) {
+    for (let xi = -half; xi < half; xi++) {
+      const x0 = cx + xi * cell;
+      const z0 = cz + zi * cell;
+      const x1 = x0 + cell;
+      const z1 = z0 + cell;
+
+      const corners = [
+        { x: x0, y: terrainHeight(x0,z0), z: z0 },
+        { x: x1, y: terrainHeight(x1,z0), z: z0 },
+        { x: x1, y: terrainHeight(x1,z1), z: z1 },
+        { x: x0, y: terrainHeight(x0,z1), z: z1 },
+      ];
+
+      const projs = corners.map(c => project(c.x, c.y, c.z));
+      if (projs.every(p => p === null)) continue;
+
+      const dist = Math.sqrt((x0 + cell/2 - aircraft.x)**2 + (z0 + cell/2 - aircraft.z)**2);
+      if (dist > TERRAIN_VIEW) continue;
+
+      const fog = clamp(1 - dist / TERRAIN_VIEW, 0, 1);
+      if (fog < 0.02) continue;
+
+      const avgY = corners.reduce((s, c) => s + c.y, 0) / 4;
+      const t = clamp((avgY + 50) / 600, 0, 1);
+      const r = Math.floor(lerp(30, 80, t));
+      const g = Math.floor(lerp(80, 140, t));
+      const b = Math.floor(lerp(30, 60, t));
+      const alpha = fog * 0.9;
+
+      const valid = projs.filter(Boolean);
+      if (valid.length < 3) continue;
+
+      ctx.beginPath();
+      let started = false;
+      for (const p of projs) {
+        if (!p) continue;
+        if (!started) { ctx.moveTo(p.sx, p.sy); started = true; }
+        else ctx.lineTo(p.sx, p.sy);
+      }
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(0,${Math.floor(g*0.6)},0,${fog * 0.15})`;
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+  }
+}
+
+// ── Ring rendering ────────────────────────────────────────────────────────
+function drawRings(dt) {
+  for (const ring of ringData) {
+    if (ring.collected) continue;
+    ring.rotation += ring.rotSpeed * dt;
+    ring.pulse += dt * 2;
+
+    const p = project(ring.x, ring.y, ring.z);
+    if (!p || p.depth > 8000) continue;
+
+    const screenR = ring.radius * p.scale;
+    if (screenR < 3) continue;
+
+    const glow = 0.5 + 0.5 * Math.sin(ring.pulse);
+    ctx.save();
+    ctx.translate(p.sx, p.sy);
+
+    // Outer glow
+    ctx.beginPath();
+    ctx.arc(0, 0, screenR + 8, 0, TAU);
+    ctx.strokeStyle = `rgba(255,170,0,${0.15 * glow})`;
+    ctx.lineWidth = 16;
+    ctx.stroke();
+
+    // Ring
+    ctx.beginPath();
+    ctx.arc(0, 0, screenR, 0, TAU);
+    ctx.strokeStyle = `rgba(255,${Math.floor(180 + 75 * glow)},0,${0.85 + 0.15 * glow})`;
+    ctx.lineWidth = Math.max(2, screenR * 0.12);
+    ctx.shadowColor = '#ffaa00';
+    ctx.shadowBlur = 20 * glow;
+    ctx.stroke();
+
+    // Inner shimmer
+    ctx.beginPath();
+    ctx.arc(0, 0, screenR * 0.7, 0, TAU);
+    ctx.strokeStyle = `rgba(255,220,100,${0.2 * glow})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Collision check
+    const dx = aircraft.x - ring.x;
+    const dy = aircraft.y - ring.y;
+    const dz = aircraft.z - ring.z;
+    const d3 = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if (d3 < ring.radius * 1.1) {
+      ring.collected = true;
+      rings++;
+      score += 500 + Math.floor(aircraft.displaySpeed / 2);
+      createCollectParticles(p.sx, p.sy);
+    }
+  }
+
+  // Check all collected → respawn
+  if (ringData.every(r => r.collected)) spawnRings();
+}
+
+// ── Particle effects ───────────────────────────────────────────────────────
+let particles2d = [];
+function createCollectParticles(sx, sy) {
+  for (let i = 0; i < 20; i++) {
+    const angle = Math.random() * TAU;
+    const spd = 2 + Math.random() * 6;
+    particles2d.push({
+      x: sx, y: sy,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life: 1, decay: 0.02 + Math.random() * 0.02,
+      r: 2 + Math.random() * 4,
+      color: `hsl(${40 + Math.random()*30},100%,${60 + Math.random()*30}%)`,
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (const p of particles2d) {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.1;
+    p.life -= p.decay;
+    p.vx *= 0.96; p.vy *= 0.96;
+  }
+  particles2d = particles2d.filter(p => p.life > 0);
+}
+
+function drawParticles() {
+  for (const p of particles2d) {
+    ctx.save();
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── Sky rendering ─────────────────────────────────────────────────────────
+function drawSky() {
+  const alt = aircraft.y;
+  // Colour shifts at altitude
+  const t = clamp(alt / 8000, 0, 1);
+  const r0 = Math.floor(lerp(20, 5,  t));
+  const g0 = Math.floor(lerp(60, 15, t));
+  const b0 = Math.floor(lerp(120,40, t));
+  const r1 = Math.floor(lerp(5, 0,   t));
+  const g1 = Math.floor(lerp(20, 5,  t));
+  const b1 = Math.floor(lerp(50, 10, t));
+
+  // Horizon shift based on pitch
+  const horizonY = H/2 + aircraft.pitch * (H * 0.8);
+
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+  skyGrad.addColorStop(0,   `rgb(${r1},${g1},${b1})`);
+  skyGrad.addColorStop(0.4, `rgb(${r0},${g0},${b0})`);
+  skyGrad.addColorStop(1,   `rgb(${Math.floor(lerp(80,40,t))},${Math.floor(lerp(50,20,t))},${Math.floor(lerp(20,5,t))})`);
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Sun
+  const sunDir = project(aircraft.x + 5000, aircraft.y + 2000, aircraft.z + 8000);
+  if (sunDir && sunDir.depth > 0) {
+    const sg = ctx.createRadialGradient(sunDir.sx, sunDir.sy, 0, sunDir.sx, sunDir.sy, 160);
+    sg.addColorStop(0,   'rgba(255,240,180,0.9)');
+    sg.addColorStop(0.1, 'rgba(255,200,80,0.4)');
+    sg.addColorStop(0.5, 'rgba(255,150,30,0.08)');
+    sg.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Stars (high altitude)
+  if (alt > 5000) {
+    const starAlpha = clamp((alt - 5000) / 3000, 0, 0.8);
+    ctx.fillStyle = `rgba(255,255,255,${starAlpha * 0.05})`;
+    // static star positions based on heading
+    for (let i = 0; i < 60; i++) {
+      const sx = ((i * 137 + aircraft.yaw * 500) % W + W) % W;
+      const sy = (i * 83) % (H * 0.6);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 1, 0, TAU);
+      ctx.fill();
+    }
+  }
+}
+
+// ── Clouds ────────────────────────────────────────────────────────────────
+const CLOUDS = [];
+(function initClouds() {
+  for (let i = 0; i < 30; i++) {
+    CLOUDS.push({
+      x: (Math.random() - 0.5) * 12000,
+      y: 800 + Math.random() * 2000,
+      z: (Math.random() - 0.5) * 12000,
+      radius: 200 + Math.random() * 400,
+      opacity: 0.3 + Math.random() * 0.5,
+    });
+  }
+})();
+
+function drawClouds() {
+  const cloudRender = [];
+  for (const c of CLOUDS) {
+    const p = project(c.x, c.y, c.z);
+    if (!p || p.depth > 10000 || p.depth < 50) continue;
+    cloudRender.push({ ...c, p });
+  }
+  cloudRender.sort((a, b) => b.p.depth - a.p.depth);
+  for (const c of cloudRender) {
+    const r = c.radius * c.p.scale;
+    if (r < 5) continue;
+    const fog = clamp(1 - c.p.depth / 8000, 0, 1);
+    const grad = ctx.createRadialGradient(c.p.sx, c.p.sy, 0, c.p.sx, c.p.sy, r);
+    grad.addColorStop(0,   `rgba(220,225,240,${c.opacity * fog * 0.7})`);
+    grad.addColorStop(0.5, `rgba(200,210,230,${c.opacity * fog * 0.4})`);
+    grad.addColorStop(1,   'rgba(180,190,220,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(c.p.sx - r, c.p.sy - r, r * 2, r * 2);
+  }
+}
+
+// ── Cockpit overlay ───────────────────────────────────────────────────────
+function drawCockpit() {
+  const cw = W, ch = H;
+  // Dashboard bottom bar
+  const dashH = ch * 0.12;
+  const grad = ctx.createLinearGradient(0, ch - dashH - 20, 0, ch);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(0.3, 'rgba(5,12,8,0.6)');
+  grad.addColorStop(1, 'rgba(2,8,5,0.95)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, ch - dashH - 20, cw, dashH + 20);
+
+  // Side pillars (windshield frame)
+  ctx.fillStyle = 'rgba(2,8,5,0.85)';
+  ctx.fillRect(0, 0, cw * 0.07, ch);
+  ctx.fillRect(cw * 0.93, 0, cw * 0.07, ch);
+
+  // Top bar
+  const topGrad = ctx.createLinearGradient(0, 0, 0, ch * 0.06);
+  topGrad.addColorStop(0, 'rgba(2,8,5,0.7)');
+  topGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(0, 0, cw, ch * 0.06);
+
+  // Structural bar across center-top
+  ctx.fillStyle = 'rgba(5,15,10,0.5)';
+  ctx.fillRect(cw * 0.07, ch * 0.03, cw * 0.86, 3);
+
+  // G-force red vignette
+  const gf = aircraft.gforce || 0;
+  if (Math.abs(gf) > 3) {
+    const gAlpha = clamp((Math.abs(gf) - 3) / 4, 0, 0.6);
+    document.getElementById('gforce-overlay').style.opacity = gAlpha;
+  } else {
+    document.getElementById('gforce-overlay').style.opacity = 0;
+  }
+}
+
+// ── Attitude indicator (mini canvas) ─────────────────────────────────────
+const attCvs = document.getElementById('attitudeCanvas');
+const attCtx = attCvs.getContext('2d');
+function drawAttitudeIndicator() {
+  const w = attCvs.width, h = attCvs.height;
+  attCtx.clearRect(0, 0, w, h);
+  attCtx.save();
+  attCtx.beginPath();
+  attCtx.arc(w/2, h/2, w/2, 0, TAU);
+  attCtx.clip();
+
+  const pitchPx = aircraft.pitch * (h / 1.2);
+  const roll = aircraft.roll;
+
+  attCtx.save();
+  attCtx.translate(w/2, h/2);
+  attCtx.rotate(roll);
+
+  // Sky half
+  attCtx.fillStyle = '#1a4a8a';
+  attCtx.fillRect(-w, -h - pitchPx, w*2, h*2);
+  // Ground half
+  attCtx.fillStyle = '#5a3010';
+  attCtx.fillRect(-w, -pitchPx, w*2, h*2);
+  // Horizon line
+  attCtx.fillStyle = 'rgba(255,255,255,0.9)';
+  attCtx.fillRect(-w, -pitchPx - 1, w*2, 2);
+
+  // Pitch lines
+  for (let i = -3; i <= 3; i++) {
+    if (i === 0) continue;
+    const py = -pitchPx + i * h * 0.18;
+    const lw = Math.abs(i) === 1 ? w * 0.3 : w * 0.2;
+    attCtx.fillStyle = 'rgba(255,255,255,0.5)';
+    attCtx.fillRect(-lw/2, py - 0.5, lw, 1);
+  }
+  attCtx.restore();
+
+  // Fixed aircraft symbol
+  attCtx.strokeStyle = '#ffcc00';
+  attCtx.lineWidth = 2;
+  attCtx.beginPath();
+  attCtx.moveTo(w*0.25, h/2); attCtx.lineTo(w*0.42, h/2);
+  attCtx.moveTo(w/2 - 2, h/2 - 4); attCtx.lineTo(w/2 + 2, h/2 - 4);
+  attCtx.moveTo(w*0.58, h/2); attCtx.lineTo(w*0.75, h/2);
+  attCtx.stroke();
+
+  // Border
+  attCtx.strokeStyle = 'rgba(0,255,136,0.4)';
+  attCtx.lineWidth = 1.5;
+  attCtx.beginPath();
+  attCtx.arc(w/2, h/2, w/2 - 1, 0, TAU);
+  attCtx.stroke();
+  attCtx.restore();
+}
+
+// ── Speed / alt tape ──────────────────────────────────────────────────────
+function buildTape(containerId, value, step, count) {
+  const inner = document.getElementById(containerId);
+  if (!inner) return;
+  const center = Math.round(value / step) * step;
+  let html = '';
+  for (let i = count; i >= -count; i--) {
+    const v = center + i * step;
+    if (v < 0) continue;
+    html += `<div class="tape-tick"><span>${v}</span><div class="tape-tick-line"></div></div>`;
+  }
+  inner.innerHTML = html;
+  const offset = ((value % step) / step) * 14;
+  inner.style.top = (60 + offset) + 'px';
+}
+
+// ── Compass ───────────────────────────────────────────────────────────────
+const COMPASS_DIRS = ['N','045','E','135','S','225','W','315'];
+function updateCompass() {
+  const hdg = ((aircraft.heading % 360) + 360) % 360;
+  const offset = -(hdg / 360) * (COMPASS_DIRS.length * 48);
+  document.getElementById('compass-inner').textContent =
+    COMPASS_DIRS.join('   ') + '   ' + COMPASS_DIRS[0];
+  document.getElementById('compass-heading').textContent =
+    Math.round(hdg).toString().padStart(3,'0') + '°';
+}
+
+// ── HUD update ────────────────────────────────────────────────────────────
+let hudTimer = 0;
+function updateHUD(dt) {
+  hudTimer += dt;
+  if (hudTimer < 0.05) return;
+  hudTimer = 0;
+
+  const kts = Math.round(aircraft.displaySpeed);
+  const ft  = Math.round(aircraft.displayAlt);
+  const vsi = Math.round(aircraft.vsi);
+
+  document.getElementById('speed-val').textContent = kts;
+  document.getElementById('alt-val').textContent = ft;
+  document.getElementById('vsi-val').textContent = (vsi >= 0 ? '+' : '') + vsi;
+  document.getElementById('throttle-fill').style.width = (aircraft.throttle * 100) + '%';
+  document.getElementById('flaps-fill').style.width = (aircraft.flaps / 3 * 100) + '%';
+  document.getElementById('gear-indicator').textContent = aircraft.gearDown ? '▼ GEAR DN' : '▲ GEAR UP';
+  document.getElementById('gear-indicator').style.color = aircraft.gearDown ? 'var(--hud-amber)' : 'var(--hud-green)';
+
+  document.getElementById('flag-stall').classList.toggle('active', aircraft.stallWarning && blink > 0.5);
+  document.getElementById('flag-overspeed').classList.toggle('active', aircraft.overspeedWarning && blink > 0.5);
+  document.getElementById('flag-gear').classList.toggle('active', aircraft.gearDown);
+
+  document.getElementById('score-val').textContent = score.toLocaleString();
+  document.getElementById('rings-val').textContent = rings;
+
+  gameTime += dt;
+  const mm = Math.floor(gameTime / 60).toString().padStart(2,'0');
+  const ss = Math.floor(gameTime % 60).toString().padStart(2,'0');
+  document.getElementById('time-val').textContent = mm + ':' + ss;
+
+  buildTape('speed-tape-inner', kts, 10, 4);
+  buildTape('alt-tape-inner', ft, 200, 4);
+  updateCompass();
+  drawAttitudeIndicator();
+}
+
+// ── Physics ───────────────────────────────────────────────────────────────
+function updatePhysics(dt) {
+  const ac = aircraft;
+  const keys_ = keys;
+
+  // Throttle
+  if (keys_['q']) ac.throttle = Math.max(0, ac.throttle - 0.5 * dt);
+  if (keys_['e']) ac.throttle = Math.min(1, ac.throttle + 0.5 * dt);
+  ac.afterburner = !!keys_['shift'];
+  ac.brakes = !!keys_['b'];
+
+  // Control inputs
+  const pitchRate = 1.2;
+  const rollRate  = 2.0;
+  if (keys_['w'] || keys_['arrowup']) ac.pitchInput = clamp(ac.pitchInput + pitchRate * dt, -1, 1);
+  else if (keys_['s'] || keys_['arrowdown']) ac.pitchInput = clamp(ac.pitchInput - pitchRate * dt, -1, 1);
+  else ac.pitchInput *= Math.pow(0.05, dt);
+
+  if (keys_['a']) ac.rollInput = clamp(ac.rollInput + rollRate * dt, -1, 1);
+  else if (keys_['d']) ac.rollInput = clamp(ac.rollInput - rollRate * dt, -1, 1);
+  else ac.rollInput *= Math.pow(0.05, dt);
+
+  // Apply rotation
+  const pitchSens = 0.8;
+  const rollSens  = 1.5;
+  const yawSens   = 0.3;
+  ac.pitch += ac.pitchInput * pitchSens * dt;
+  ac.roll  += ac.rollInput  * rollSens  * dt;
+  // Yaw couples from roll (coordinated turn)
+  ac.yaw   += Math.sin(ac.roll) * Math.cos(ac.pitch) * yawSens * dt;
+
+  // Clamp pitch
+  ac.pitch = clamp(ac.pitch, -1.3, 1.3);
+  // Roll wraps
+  ac.roll = ((ac.roll + Math.PI) % TAU) - Math.PI;
+
+  // Airspeed
+  const thrustMax = ac.afterburner ? 2800 : 1800;
+  const flapsLift = ac.flaps * 0.08;
+  let thrust = ac.throttle * thrustMax;
+  if (ac.brakes) thrust *= 0.2;
+
+  // Drag
+  const speed = Math.sqrt(ac.vx*ac.vx + ac.vy*ac.vy + ac.vz*ac.vz);
+  const drag  = speed * speed * (0.018 + ac.flaps * 0.012 + (ac.gearDown ? 0.02 : 0));
+  const lift  = speed * speed * (0.022 + flapsLift);
+
+  // Stall/overspeed
+  const speedKts = speed * 1.944;
+  const stallKts = 120 - ac.flaps * 15;
+  ac.stallWarning = speedKts < stallKts;
+  ac.overspeedWarning = speedKts > 520;
+
+  // Direction vectors from orientation
+  const sp = Math.sin(ac.pitch), cp = Math.cos(ac.pitch);
+  const sr = Math.sin(ac.roll),  cr = Math.cos(ac.roll);
+  const sy = Math.sin(ac.yaw),   cy = Math.cos(ac.yaw);
+
+  // Forward vector (where nose points)
+  const fwd = {
+    x:  cp * sy,
+    y:  sp,
+    z:  cp * cy
+  };
+  // Up vector
+  const up = {
+    x: -sp * sy * cr - cy * sr,
+    y:  cp * cr,
+    z: -sp * cy * cr + sy * sr,
+  };
+
+  // Thrust along forward
+  ac.vx += fwd.x * thrust * dt / 8000;
+  ac.vy += fwd.y * thrust * dt / 8000;
+  ac.vz += fwd.z * thrust * dt / 8000;
+
+  // Lift along up (proportional to speed)
+  const liftFactor = ac.stallWarning ? 0.1 : 1;
+  ac.vx += up.x * lift * dt * 0.005 * liftFactor;
+  ac.vy += up.y * lift * dt * 0.005 * liftFactor;
+  ac.vz += up.z * lift * dt * 0.005 * liftFactor;
+
+  // Gravity
+  ac.vy -= GRAVITY * dt;
+
+  // Drag opposing velocity
+  if (speed > 0.01) {
+    const dragF = drag * dt * 0.001;
+    ac.vx -= (ac.vx / speed) * dragF;
+    ac.vy -= (ac.vy / speed) * dragF;
+    ac.vz -= (ac.vz / speed) * dragF;
+  }
+
+  // Speed cap
+  const maxSpd = 300;
+  const curSpd = Math.sqrt(ac.vx*ac.vx+ac.vy*ac.vy+ac.vz*ac.vz);
+  if (curSpd > maxSpd) {
+    const f = maxSpd / curSpd;
+    ac.vx *= f; ac.vy *= f; ac.vz *= f;
+  }
+
+  // Integrate position
+  ac.x += ac.vx * dt * 8;
+  ac.y += ac.vy * dt * 8;
+  ac.z += ac.vz * dt * 8;
+
+  // Terrain collision
+  const ground = terrainHeight(ac.x, ac.z);
+  if (ac.y < ground + 15) {
+    if (Math.abs(ac.vy * 1.944 * 60) > 800 || speed * 1.944 > 200) {
+      crashGame();
+      return;
+    }
+    ac.y = ground + 15;
+    ac.vy = Math.max(0, ac.vy);
+    ac.vx *= 0.7; ac.vz *= 0.7;
+  }
+
+  // Ceiling
+  if (ac.y > 12000) { ac.y = 12000; ac.vy = Math.min(0, ac.vy); }
+
+  // Derived
+  ac.speed = Math.sqrt(ac.vx*ac.vx+ac.vy*ac.vy+ac.vz*ac.vz);
+  ac.altitude = ac.y * 3.28084;
+  ac.heading = ((Math.atan2(ac.vx, ac.vz) * 180/Math.PI) + 360) % 360;
+  const prevVSI = ac.vsi;
+  ac.vsi = lerp(prevVSI, (ac.vy * 3.28084 * 60), dt * 2);
+  ac.gforce = Math.abs(ac.vy * 0.5);
+
+  // Smooth display values
+  ac.displaySpeed = lerp(ac.displaySpeed, ac.speed * 1.944, dt * 3);
+  ac.displayAlt   = lerp(ac.displayAlt,   ac.altitude,      dt * 3);
+
+  // Score for flying
+  if (gameState === 'flying') {
+    score += Math.floor(ac.speed * 0.02);
+  }
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────
+function loop(ts) {
+  if (gameState !== 'flying') return;
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  blink = ((ts / 500) % 1);
+
+  updatePhysics(dt);
+  updateProjection();
+
+  // Render
+  ctx.clearRect(0, 0, W, H);
+  drawSky();
+  drawClouds();
+  drawTerrain();
+  drawRings(dt);
+  drawParticles();
+  drawCockpit();
+  updateParticles(dt);
+  updateHUD(dt);
+
+  requestAnimationFrame(loop);
+}
+
+// ── Game flow ──────────────────────────────────────────────────────────────
+function startGame() {
+  resetAircraft();
+  spawnRings();
+  score = 0; rings = 0; gameTime = 0;
+  particles2d = [];
+  gameState = 'flying';
+  showScreen(null);
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+function pauseGame() {
+  gameState = 'paused';
+  showScreen('screen-pause');
+}
+
+function resumeGame() {
+  gameState = 'flying';
+  showScreen(null);
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+function crashGame() {
+  gameState = 'crashed';
+  const mm = Math.floor(gameTime / 60).toString().padStart(2,'0');
+  const ss = Math.floor(gameTime % 60).toString().padStart(2,'0');
+  document.getElementById('crash-stats').innerHTML = `
+    <div class="stat-item"><div class="stat-label">SCORE</div><div class="stat-num">${score.toLocaleString()}</div></div>
+    <div class="stat-item"><div class="stat-label">RINGS</div><div class="stat-num">${rings}</div></div>
+    <div class="stat-item"><div class="stat-label">TIME</div><div class="stat-num">${mm}:${ss}</div></div>
+    <div class="stat-item"><div class="stat-label">ALTITUDE</div><div class="stat-num">${Math.round(aircraft.displayAlt)}<span style="font-size:14px">ft</span></div></div>
+  `;
+  showScreen('screen-crash');
+}
+
+function showScreen(id) {
+  ['screen-menu','screen-help','screen-pause','screen-crash'].forEach(s => {
+    document.getElementById(s).classList.add('hidden');
+  });
+  document.getElementById('hud').style.display = id ? 'none' : 'block';
+  if (id) document.getElementById(id).classList.remove('hidden');
+}
+
+// ── Button listeners ───────────────────────────────────────────────────────
+document.getElementById('btn-start').addEventListener('click', startGame);
+document.getElementById('btn-help').addEventListener('click', () => showScreen('screen-help'));
+document.getElementById('btn-back').addEventListener('click', () => showScreen('screen-menu'));
+
+// City / Rural toggle on menu
+document.getElementById('btn-rural').addEventListener('click', () => {
+  viewMode = 'rural';
+  document.getElementById('btn-rural').style.opacity='1';
+  document.getElementById('btn-city').style.opacity='0.55';
+  document.getElementById('view-mode-label').textContent='RURAL';
+});
+document.getElementById('btn-city').addEventListener('click', () => {
+  viewMode = 'city';
+  document.getElementById('btn-city').style.opacity='1';
+  document.getElementById('btn-rural').style.opacity='0.55';
+  document.getElementById('view-mode-label').textContent='CITY';
+});
+document.getElementById('btn-resume').addEventListener('click', resumeGame);
+document.getElementById('btn-quit').addEventListener('click', () => { gameState='menu'; showScreen('screen-menu'); });
+document.getElementById('btn-restart').addEventListener('click', startGame);
+document.getElementById('btn-quit2').addEventListener('click', () => { gameState='menu'; showScreen('screen-menu'); });
+
+// Initial state
+showScreen('screen-menu');
+document.getElementById('hud').style.display = 'none';
+
+})();
+</script>
+</body>
+</html>
