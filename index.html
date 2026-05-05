@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkyRider — First Person Flight Game</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="gameContainer">
+  <canvas id="gameCanvas"></canvas>
+  <div id="overlay" class="overlay active">
+    <div class="overlay-content">
+      <h1>SKY<span>RIDER</span></h1>
+      <p class="tagline">First-Person Cockpit Flight Experience</p>
+      <div class="controls-grid">
+        <div class="control-item"><kbd>↑</kbd><kbd>↓</kbd> Pitch / Altitude</div>
+        <div class="control-item"><kbd>←</kbd><kbd>→</kbd> Bank & Steer</div>
+        <div class="control-item"><kbd>Space</kbd> Afterburner</div>
+        <div class="control-item"><kbd>P</kbd> Pause &nbsp; <kbd>M</kbd> Mute</div>
+      </div>
+      <button id="startBtn">START ENGINE</button>
+    </div>
+  </div>
+  <div id="pauseOverlay" class="overlay">
+    <div class="overlay-content">
+      <h2>PAUSED</h2>
+      <button id="resumeBtn">RESUME</button>
+    </div>
+  </div>
+  <div id="gameoverOverlay" class="overlay">
+    <div class="overlay-content">
+      <h2>CRASHED</h2>
+      <p id="finalScore"></p>
+      <p id="finalHigh"></p>
+      <button id="restartBtn">FLY AGAIN</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
